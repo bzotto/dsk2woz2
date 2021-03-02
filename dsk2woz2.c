@@ -10,8 +10,10 @@
 //  The WOZ images are compatible with the Applesauce FDC, and readable by various emulators.
 //  Specification is here: https://applesaucefdc.com/woz/reference2/
 //
+//
 
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -62,7 +64,6 @@ static void free_chunk(woz_chunk * chunk);
 static void write_uint8(uint8_t * dest, uint8_t value);
 static void write_uint16(uint8_t * dest, uint16_t value);
 static void write_uint32(uint8_t * dest, uint32_t value);
-static void write_uint32_be(uint8_t * dest, uint32_t value);
 static void write_utf8(uint8_t * dest, const char * utf8string, int n);
 
 static size_t encode_bits_for_track(uint8_t * dest, uint8_t * src, int track_number, dsk_sector_format sector_format);
@@ -139,7 +140,7 @@ int main(int argc, const char * argv[])
     }
         
     // Emit the header. Leave the CRC slot empty; will write that last.
-    write_uint32_be(woz, 'WOZ2');                  // 'WOZ2' magic number
+    woz[0] = 'W'; woz[1] = 'O'; woz[2] = 'Z'; woz[3] = '2';   // 'WOZ2' magic number
     woz[4] = 0xFF;                                 // Marker to ensure high bits present
     woz[5] = '\n'; woz[6] = '\r'; woz[7] = '\n';   // LF CR LF to ensure no text transforms
     
@@ -183,11 +184,11 @@ int main(int argc, const char * argv[])
 // Chunk creation and writing utility routines
 //
 
-woz_chunk * create_chunk(uint32_t name, size_t data_length)
+woz_chunk * create_chunk(const char * name, size_t data_length)
 {
     woz_chunk * chunk = calloc(sizeof(woz_chunk) + data_length, 1);
     if (chunk) {
-        chunk->name = name;
+        memcpy(&chunk->name, name, 4);
         chunk->data_length = data_length;
     }
     return chunk;
@@ -196,7 +197,7 @@ woz_chunk * create_chunk(uint32_t name, size_t data_length)
 static
 woz_chunk * create_info_chunk()
 {
-    woz_chunk * chunk = create_chunk('INFO', 60);
+    woz_chunk * chunk = create_chunk("INFO", 60);
     if (!chunk) { return NULL; }
     write_uint8(&chunk->data[0], 2); // INFO version 2
     write_uint8(&chunk->data[1], 1); // Disk Type (1 = 5.25)
@@ -216,7 +217,7 @@ woz_chunk * create_info_chunk()
 static
 woz_chunk * create_tmap_chunk()
 {
-    woz_chunk * chunk = create_chunk('TMAP', 160);
+    woz_chunk * chunk = create_chunk("TMAP", 160);
     if (!chunk) { return NULL; }
     size_t byte_index = 0;
     // We will write all bytes of this chunk; unused entries get 0xFF (not zero).
@@ -253,7 +254,7 @@ woz_chunk * create_tmap_chunk()
 static
 woz_chunk * create_trks_chunk(uint8_t * track_data, uint32_t valid_bits_per_track)
 {
-    woz_chunk * chunk = create_chunk('TRKS', (160 * 8) + (TRACKS_PER_DISK * BITS_TRACK_SIZE));
+    woz_chunk * chunk = create_chunk("TRKS", (160 * 8) + (TRACKS_PER_DISK * BITS_TRACK_SIZE));
     if (!chunk) { return NULL; }
 
     // Write each mandatory TRK structure (8 bytes each)
@@ -282,7 +283,7 @@ woz_chunk * create_trks_chunk(uint8_t * track_data, uint32_t valid_bits_per_trac
 static
 woz_chunk * create_writ_chunk(uint8_t * track_data, uint32_t valid_bits_per_track)
 {
-    woz_chunk * chunk = create_chunk('WRIT', TRACKS_PER_DISK * 20);
+    woz_chunk * chunk = create_chunk("WRIT", TRACKS_PER_DISK * 20);
     if (!chunk) { return NULL; }
     size_t byte_index = 0;
     for (int t = 0; t < TRACKS_PER_DISK; t++) {
@@ -320,7 +321,7 @@ size_t total_chunk_size(woz_chunk * chunk)
 static
 size_t write_chunk(uint8_t * dest, woz_chunk * chunk)
 {
-    write_uint32_be(dest, chunk->name);
+    write_uint32(dest, chunk->name);
     write_uint32(&dest[4], (uint32_t)chunk->data_length);
     memcpy(&dest[8], chunk->data, chunk->data_length);
     return 8 + chunk->data_length;
@@ -352,15 +353,6 @@ void write_uint32(uint8_t * dest, uint32_t value)
     dest[1] = (value >> 8) & 0xFF;
     dest[2] = (value >> 16) & 0xFF;
     dest[3] = (value >> 24) & 0xFF;
-}
-
-static
-void write_uint32_be(uint8_t * dest, uint32_t value)
-{
-    dest[0] = (value >> 24) & 0xFF;
-    dest[1] = (value >> 16) & 0xFF;
-    dest[2] = (value >> 8) & 0xFF;
-    dest[3] = value & 0xFF;
 }
 
 // This routine expects utf8string to be both a valid UTF string and
